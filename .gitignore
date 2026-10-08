@@ -1,0 +1,27 @@
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Local config and secrets
+.env
+
+# Personal data: real document scans never go to git
+samples/
+*.jpg
+*.jpeg
+
+# Downloaded models (scripts/download_models.py)
+models/tessdata/*.traineddata
+
+# Generated benchmark images (bench/make_set.py)
+bench/set/
+bench/gt.json
+
+# IDE / local junk
+.idea/
+.vscode/
+_to_delete/
+*.tgz

@@ -1,0 +1,36 @@
+[project]
+name = "tajik-ocr"
+version = "0.3.0"
+description = "FastAPI service for Tajik text recognition (OCR) (Tesseract tgk + PaddleOCR)"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Komyor" }]
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "fastapi>=0.142.4",
+    "opencv-contrib-python>=4.10",
+    "pillow>=12.3.0",
+    "pytesseract>=0.3.13",
+    "python-multipart>=0.0.32",
+    "pyyaml>=6.0.2",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.optional-dependencies]
+# Second engine (heavy, ~1 GB): uv sync --extra paddle
+paddle = [
+    "paddleocr==3.7.0",
+    "paddlepaddle==3.3.1",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 110
