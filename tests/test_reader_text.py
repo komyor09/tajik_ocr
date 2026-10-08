@@ -17,3 +17,7 @@ def test_country_codes():
     assert _match_code("TUKATIK") == "TJK"
     assert _match_code("TUT") is None  # too far from any code: better empty than wrong
     assert _match_code_cyr("ТЧК/ТЛК") == "TJK"
+
+
+def test_stray_latin_i_is_a_gap():
+    assert _clean_tg("ВИЛОЯТИІСУҒД, АШТ") == "ВИЛОЯТИ СУҒД, АШТ"

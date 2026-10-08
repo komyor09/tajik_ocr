@@ -146,8 +146,10 @@ def parse(lines: list[str]) -> Mrz:
     surname = names[0].replace("<", " ").strip()
     given = names[1].replace("<", " ").strip() if len(names) > 1 else ""
 
+    # Tajik cards: letter + 8 digits. A wrong format that passes the checksum is a coincidence.
+    format_ok = l1[2:5] != "TJK" or bool(re.fullmatch(r"[A-Z]\d{8}", doc_number))
     checks = {
-        "document_number": check_digit(l1[5:14]) == l1[14],
+        "document_number": check_digit(l1[5:14]) == l1[14] and format_ok,
         "birth_date": check_digit(l2[0:6]) == l2[6],
         "expiry_date": check_digit(l2[8:14]) == l2[14],
         "composite": check_digit(l1[5:30] + l2[0:7] + l2[8:15] + l2[18:29]) == l2[29],

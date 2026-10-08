@@ -31,3 +31,14 @@ def test_ocr_noise_is_repaired():
 
 def test_clean_lines_rejects_plain_text():
     assert clean_lines("Republic of Tajikistan\nИдентификатсия") is None
+
+
+def test_tajik_document_number_format():
+    from app.passport.mrz import check_digit as cd
+
+    doc = "AZ3218621"  # passes its checksum but is not letter + 8 digits
+    l1 = f"IDTJK{doc}{cd(doc)}3500000000001".ljust(30, "<")
+    l2 = "0412122M2802264TJK".ljust(29, "<")
+    l2 += cd(l1[5:30] + l2[0:7] + l2[8:15] + l2[18:29])
+    m = parse([l1, l2, "TESTOV<<TEST".ljust(30, "<")])
+    assert m.checks["document_number"] is False

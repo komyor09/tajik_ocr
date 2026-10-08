@@ -2,149 +2,96 @@
 
 ![tests](../../actions/workflows/tests.yml/badge.svg)
 
-> **EN:** FastAPI service for Tajik-language OCR (Tesseract `tgk` with full support of ғ ӣ қ ӯ ҳ ҷ)
-> and for reading the Tajik national ID card: template alignment, per-field OCR, ICAO 9303 MRZ
-> with check digits, and Cyrillic/Latin/MRZ cross-validation of names. Docs below are in Russian.
+> **EN:** FastAPI service for Tajik-language OCR and for reading the Tajik national ID card.
+> `POST /hr/passport` turns both sides of the card into an 18-field employee record in Tajik or
+> English, with confidence scores for text fields and a list of fields for human review.
+> Tesseract `tgk` (full ғ ӣ қ ӯ ҳ ҷ support), SIFT template alignment, ICAO 9303 MRZ check digits,
+> Cyrillic/Latin/MRZ name voting. Runs fully locally. Docs are in Russian.
 
-FastAPI-сервис: отправляешь картинку — получаешь таджикский текст.
+Сервис распознавания таджикского текста и ID-карты гражданина Таджикистана. Всё работает
+локально: ни изображения, ни данные никуда не отправляются.
 
-Два движка:
-- **Tesseract `tgk`** — по умолчанию. Официальная таджикская модель, знает все буквы ғ ӣ қ ӯ ҳ ҷ.
-- **PaddleOCR `tg`** — опционально. Общая кириллическая модель: путает ҳ/х, ҷ/ч, ӣ/й, ӯ/у.
+## Что умеет
 
-Перед распознаванием изображение проходит предобработку: выравнивание освещения (`OCR_FLATTEN`)
-и выпрямление наклона (`OCR_DESKEW`).
-
-## Паспорт (ID-карта) Таджикистана — `/passport`
-
-Распознаёт обе стороны ID-карты образца 2017+ (Шиноснома / Identity Card) и возвращает поля в JSON.
-
-| Эндпоинт | |
+| Эндпоинт | Для чего |
 |---|---|
-| `POST /passport` | поля `front` и/или `back` — обе стороны, со сверкой |
-| `POST /passport/front` | только лицевая сторона (`file`) |
-| `POST /passport/back` | только обратная сторона + MRZ (`file`) |
+| **`POST /hr/passport`** | **Две стороны ID-карты → анкета сотрудника из 18 полей на `tg` или `en`, с `scores` и `needs_review`.** Для HR-модуля. → [docs/hr-api.md](docs/hr-api.md) |
+| `POST /passport` | Все поля карты с исходным чтением OCR, уверенностью, сверкой с MRZ и пояснениями |
+| `POST /ocr` | Любой таджикский текст на изображении (Tesseract `tgk`, опционально PaddleOCR) |
 
 ```powershell
-curl.exe -F "front=@front.jpg" -F "back=@back.jpg" http://localhost:8000/passport
+curl.exe -F "front=@front.jpg" -F "back=@back.jpg" "http://localhost:8000/hr/passport?lang=tg"
 ```
 
-Как работает:
-1. **Выравнивание по шаблону.** Фото сопоставляется с эталоном карты по ключевым точкам SIFT
-   (флаг, герб, подписи полей, фоновый узор — у всех карт одинаковые) → гомография → карта
-   1024×640. Не зависит от фона, обрезки краёв, поворота (в т.ч. вверх ногами) и перспективы.
-   Заодно определяется сторона — неважно, какой файл прислан как `front`, а какой как `back`.
-   Эталоны в `app/passport/templates/` обезличены: фото, ФИО, даты, номера, подпись, MRZ стёрты.
-   Если сопоставить не удалось — запасной путь через контур карты.
-2. **Поля по зонам**: каждое поле читается отдельно своей моделью (`tgk` — кириллица, `eng` —
-   латиница/цифры) с проверкой формата; семейное положение и коды стран — по словарю.
-3. **MRZ** (`ocrb`) читается в нескольких вариантах, лучший выбирается по 4 контрольным цифрам
-   ICAO 9303; строка имён (у неё контрольной цифры нет) — из варианта, где она похожа на имена.
-4. **Сверка**:
-   - номер документа, даты, пол, гражданство, личный номер — с MRZ;
-   - ФИО — голосованием трёх независимых чтений (кириллица, латиница, MRZ) через
-     транслитерацию с учётом типичных ошибок OCR: Ч/Ҷ, Х/Ҳ, Л/П, К/Қ, потерянные Ё/Ӯ/Ӣ,
-     пропущенная или лишняя буква (ЗУПХАЧОН + ZULHAJON → ЗУЛҲАҶОН);
-   - срок действия = дата выдачи + 10 лет − 1 день.
-
-Каждое поле:
 ```json
-"surname_tg": {"value": "ЁРМАТОВ", "raw": "ЕРМАТОВ", "confidence": 0.6, "verified": true,
-            "note": "исправлено по латинице (было ЕРМАТОВ)"}
-```
-`verified`: `true` — подтверждено MRZ/сверкой, `false` — противоречит ей (проверь вручную),
-`null` — сверять не с чем. Общие проблемы — в `warnings`.
-
-Поля: `surname_tg/_en`, `name_tg/_en`, `patronymic_tg/_en`, `sex`, `nationality`, `birth_date`,
-`birth_place`, `issue_date`, `expiry_date`, `national_id`, `document_number` (лицевая);
-`address`, `marital_status`, `blood_group`, `tax_id`, `issuing_authority_tg/_en` (обратная).
-Даты — в ISO (`2032-12-15`).
-
-Качество:
-
-| Набор | Все поля | Ключевые поля* |
-|---|---|---|
-| 3 реальные карты (сканы и фото телефоном; на них же настраивалось) | 57/57 | 39/39 |
-| 21 имитация фото из этих карт (наклон до 15°, перспектива, тень, вверх ногами, вертикально, мелко, JPEG q=45) | 94% | 98,5% |
-
-\* ФИО (кир./лат.), пол, гражданство, даты, личный номер, номер документа.
-Ни одна ошибка не получила `verified: true` — подтверждённым полям можно доверять, остальные
-стоит показать оператору. `sides.*.match_score` < 40 → предупреждение «переснять».
-Больше всего ошибок в адресе (длинный свободный текст). ~3,5 с на две стороны.
-
-**Персональные данные.** Сервис ничего не сохраняет и не логирует: изображения живут в памяти только
-на время запроса. Для работы в сети: задай `API_KEY` и ставь сервис за HTTPS.
-В репозитории нет ни одного реального документа: эталоны в `app/passport/templates/` обезличены,
-тесты используют вымышленные имена и образец MRZ из ICAO 9303. Реальные сканы для проверки держи
-локально в `samples/` — папка и все `*.jpg` в `.gitignore`. Сканы чужих документов — только с
-согласия владельцев.
-
-## Бенчмарк (bench/, 90 синтетических картинок: 5 шрифтов × 6 условий)
-
-| Движок | CER | Таджикские буквы |
-|---|---|---|
-| **Tesseract tgk + flatten + deskew (через API)** | **0.0%** | **100%** |
-| Tesseract tgk без предобработки | 6.0% | 92% |
-| EasyOCR tjk | 12.6% | 86% |
-| PaddleOCR tg (sample) | — | 33% |
-
-Текст в бенчмарке напечатан компьютером — реальные фото и сканы проверяй отдельно.
-
-```powershell
-uv run python bench/make_set.py          # сгенерировать 90 картинок в bench/set
-uv run python bench/run_bench.py tesseract --flatten
-uv run python bench/run_bench.py paddle  # нужно uv sync --extra paddle
+{
+  "lang": "tg",
+  "data": {
+    "surname": "Маҳмудова", "name": "Гулнора", "patronymic": "Абдуқодирзода",
+    "gender": "Зан", "date_of_birth": "1991-02-22",
+    "address": "ВИЛОЯТИ СУҒД, ИСФАРА, ҶАМОАТИ ГУЛИСТОН КӮЧАИ ДӮСТӢ ХОНАИ 54",
+    "phone": null, "phone_2": null, "email": null,
+    "marital_status": "Оиладор", "nationality": "ТҶК", "country": "Тоҷикистон",
+    "region": "Суғд", "city_or_district": "Исфара", "village": "Гулистон",
+    "inn": "281948219", "national_id": "3518609139099", "passport_id": "A60308246"
+  },
+  "scores": {"surname": 0.96, "name": 0.95, "patronymic": 0.95, "address": 0.95, "...": "..."},
+  "needs_review": [],
+  "warnings": [],
+  "elapsed_ms": 3400
+}
 ```
 
-## Установка (Windows)
+<sub>Данные вымышленные — образец из `scripts/make_specimens.py`.</sub>
 
-1. **Tesseract**: https://github.com/UB-Mannheim/tesseract/wiki (языки можно не отмечать).
-2. **Модели** (`tgk`, `eng` из tessdata_best и `ocrb` для MRZ) — в `models/tessdata/`:
+## Как это работает — коротко
+
+1. Фото совмещается с обезличенным эталоном карты по ключевым точкам (SIFT + гомография):
+   неважны фон, обрезка, поворот, перспектива и какой файл прислан как `front`/`back`.
+2. Каждое поле читается отдельно своей моделью Tesseract (`tgk` — кириллица, `eng` — латиница,
+   `ocrb` — MRZ).
+3. Значения сверяются между собой: MRZ с контрольными цифрами, ФИО — голосованием кириллицы,
+   латиницы и MRZ через таджикскую транслитерацию, адрес — со справочником районов.
+4. Подтверждённые поля получают высокую оценку, сомнительные попадают в `needs_review`.
+
+Подробно — [docs/architecture.md](docs/architecture.md).
+
+## Качество
+
+Вымышленные образцы, `/hr/passport` (подробности — [docs/testing.md](docs/testing.md)):
+
+| Набор | Верно (`tg` / `en`) | Ошибок без пометки `needs_review` |
+|---|---|---|
+| 20 «сканов» | 100% / 100% | 0 |
+| 30 «фото телефоном» (не использовались при настройке) | 90,8% / 92,2% | 0 |
+
+ФИО, пол, даты, личный номер и номер документа на «фото» — 28–30 из 30. Слабые места:
+РМА/ИНН и части адреса — они честно уходят в `needs_review`.
+
+## Быстрый старт (Windows)
+
+1. Установите [Tesseract](https://github.com/UB-Mannheim/tesseract/wiki) и [uv](https://docs.astral.sh/uv/).
+2. В папке проекта:
    ```powershell
+   uv sync
    uv run python scripts/download_models.py
-   ```
-   Сервер нужно запускать из папки проекта: путь к моделям передаётся относительным
-   (pytesseract не умеет пути с пробелами на Windows).
-3. Проект:
-   ```powershell
-   uv sync                    # только Tesseract (лёгкая установка)
-   uv sync --extra paddle     # + PaddleOCR (~1 ГБ), чтобы сравнивать
    copy .env.example .env
    uv run uvicorn app.main:app --port 8000
    ```
+3. Откройте `http://localhost:8000/docs`.
 
-Swagger: http://localhost:8000/docs
+Настройки, продакшен, API-ключ — [docs/setup.md](docs/setup.md).
 
-## API
+## Документация
 
-`POST /ocr` — `multipart/form-data`, поле `file`. Query-параметры (все необязательные):
-
-| Параметр | |
+| | |
 |---|---|
-| `engine=tesseract\|paddle` | движок (по умолчанию `OCR_ENGINE`) |
-| `flatten=true\|false` | выравнивание освещения |
-| `deskew=true\|false` | выпрямление наклона |
-| `min_score=0.6` | отбросить неуверенные строки |
-
-```powershell
-curl.exe -F "file=@samples/tajik_sample.png" http://localhost:8000/ocr
-curl.exe -F "file=@samples/tajik_sample.png" "http://localhost:8000/ocr?engine=paddle"
-```
-
-Ответ:
-```json
-{
-  "engine": "tesseract",
-  "text": "Ҷумҳурии Тоҷикистон\n...",
-  "lines": [{"text": "Ҷумҳурии Тоҷикистон", "score": 0.96, "box": [[43,49],[500,49],[500,86],[43,86]]}],
-  "width": 1000, "height": 360,
-  "deskew_angle": 0.0,
-  "elapsed_ms": 410
-}
-```
-`box` — в координатах выпрямленного изображения (если `deskew_angle` ≠ 0).
-
-`GET /health` — какие движки загружены, версии, для Paddle — `tajik_letters_missing`.
+| [docs/hr-api.md](docs/hr-api.md) | HR API: поля, языки, `scores`, `needs_review`, примеры для Laravel/Python |
+| [docs/api.md](docs/api.md) | Справочник всех эндпоинтов и ошибок |
+| [docs/architecture.md](docs/architecture.md) | Конвейер, модули, решения и ограничения |
+| [docs/setup.md](docs/setup.md) | Установка, настройки `.env`, запуск в продакшене |
+| [docs/testing.md](docs/testing.md) | Тесты, генератор образцов, оценка качества, бенчмарк |
+| [docs/privacy.md](docs/privacy.md) | Персональные данные: правила сервиса и репозитория |
 
 ## Разработка
 
@@ -152,34 +99,17 @@ curl.exe -F "file=@samples/tajik_sample.png" "http://localhost:8000/ocr?engine=p
 uv sync --extra paddle
 uv run pytest -q
 uvx ruff check app tests scripts
+uv run python scripts/make_specimens.py -n 30 --photo && uv run python scripts/eval_specimens.py
 ```
+
+## Ограничения
+
+- Только ID-карта образца 2017+ («Шиноснома / Identity Card»); старый паспорт-книжка не поддерживается.
+- ~3–4 с на две стороны на обычном CPU.
+- Реальных карт в оценке пока мало (3): для продакшена нужна проверка на 20–30 картах с согласия владельцев.
 
 ## Лицензия
 
-Код — MIT (см. `LICENSE`). Модели Tesseract скачиваются отдельно: `tgk`, `eng` — tessdata_best
-(Apache-2.0), `ocrb` — [Shreeshrii/tessdata_ocrb](https://github.com/Shreeshrii/tessdata_ocrb).
-
-## Структура
-
-```
-app/config.py            настройки из env/.env
-app/preprocess.py        flatten_lighting, deskew
-app/engines/tesseract.py Tesseract (pytesseract), группировка слов в строки
-app/engines/paddle.py    PaddleOCR
-app/main.py              FastAPI: /ocr, /health
-app/tess.py              общий вызов Tesseract, поиск моделей
-app/passport/align.py    выравнивание по шаблону (SIFT + гомография), определение стороны
-app/passport/templates/  обезличенные эталоны сторон карты
-app/passport/card.py     запасной поиск карты по контуру
-app/passport/layout.py   зоны полей ID-карты
-app/passport/reader.py   чтение полей, сверка с MRZ
-app/passport/mrz.py      разбор MRZ TD1, контрольные цифры
-app/passport/translit.py таджикская транслитерация, исправление ФИО
-app/passport/router.py   /passport, /passport/front, /passport/back
-tests/                   uv run pytest
-bench/                   синтетический бенчмарк движков (make_set.py, run_bench.py)
-.github/workflows/       CI: ruff + pytest
-scripts/download_models.py
-bench/run_bench.py       сравнение движков на bench/set
-scripts/make_sample.py   тестовая картинка
-```
+Код — MIT ([LICENSE](LICENSE)). Модели Tesseract скачиваются отдельно: `tgk`, `eng` —
+[tessdata_best](https://github.com/tesseract-ocr/tessdata_best) (Apache-2.0), `ocrb` —
+[Shreeshrii/tessdata_ocrb](https://github.com/Shreeshrii/tessdata_ocrb).

@@ -42,7 +42,8 @@ COUNTRY_CODES = [
     "GBR",
 ]
 
-OPTIONAL = {"blood_group"}  # often left blank on the card
+OPTIONAL = {"blood_group"}
+DIGIT_LENGTHS = {"national_id": 13, "tax_id": 9}  # Рақами ягонаи миллӣ, РМА  # often left blank on the card
 
 _pool = ThreadPoolExecutor(max_workers=4)  # tesseract runs as a subprocess, threads parallelise it
 
@@ -156,6 +157,8 @@ def _match_code_cyr(raw: str) -> str | None:
 
 MARITAL_TG = ["МУҶАРРАД", "ОИЛАДОР", "ЗАНДОР", "ШАВҲАРДОР", "ҶУДОШУДА", "БЕВА", "ЗАНМУРДА"]
 MARITAL_EN = ["SINGLE", "MARRIED", "DIVORCED", "WIDOWED", "WIDOW", "WIDOWER"]
+MARITAL_PAIRS = {"МУҶАРРАД": "SINGLE", "ОИЛАДОР": "MARRIED", "ЗАНДОР": "MARRIED", "ШАВҲАРДОР": "MARRIED",
+                 "ҶУДОШУДА": "DIVORCED", "БЕВА": "WIDOWED", "ЗАНМУРДА": "WIDOWER"}  # fmt: skip
 
 
 def _vocab(text: str, words: list[str]) -> str | None:
@@ -176,6 +179,8 @@ _DIGIT_LOOKALIKES = str.maketrans("ЗБОЧТ", "36047")
 
 
 def _clean_tg(line: str) -> str:
+    # Latin/Ukrainian I or a bar never occur in Tajik text: Tesseract emits them for a gap
+    line = re.sub(r"[ІіI|]", " ", line)
     line = translit.normalize_cyrillic(line)
     line = re.sub(r"[^А-ЯЁҒӢҚӮҲҶ0-9\-.,/№ ]", "", line)
     line = translit.fix_words(re.sub(r"\s+", " ", line).strip(" ,."))
@@ -207,7 +212,11 @@ def _read_zone(gray: np.ndarray, name: str, z: layout.Zone) -> Field:
         raw, conf = _ocr(gray, z, "eng")  # whitelisted reads report confidence 0, so try plain first
         if len(re.sub(r"\D", "", raw)) < 6:
             raw, conf = _ocr(gray, z, "eng", whitelist=DIGITS)
-        return Field(re.sub(r"\D", "", raw) or None, raw, conf)
+        value = re.sub(r"\D", "", raw) or None
+        length = DIGIT_LENGTHS.get(name)
+        if value and length and len(value) != length:  # wrong length = misread, never a valid number
+            return Field(None, raw, conf, False, f"ожидалось {length} цифр, прочитано {len(value)}")
+        return Field(value, raw, conf)
     if k == "docnum":
         raw, conf = _ocr(gray, z, "eng", whitelist=LATIN + DIGITS)
         v = re.sub(r"[^A-Z0-9]", "", raw)
@@ -236,7 +245,9 @@ def _read_zone(gray: np.ndarray, name: str, z: layout.Zone) -> Field:
         )
         en = _vocab(re.sub(r"[^A-Z]", "", raw_en.upper().split("/")[-1]), MARITAL_EN)
         value = f"{tg}/{en}" if tg and en else (tg or en or None)
-        return Field(value, f"{raw_tg} | {raw_en}", round((conf_tg + conf_en) / 2, 4))
+        # both halves read independently and agree (МУҶАРРАД <-> SINGLE): confirmed
+        agree = MARITAL_PAIRS.get(tg) == en if tg and en else None
+        return Field(value, f"{raw_tg} | {raw_en}", round((conf_tg + conf_en) / 2, 4), agree or None)
     if k == "blood":
         raw, conf = _ocr(gray, z, "eng", whitelist="ABOIV0()+-/")
         m = re.search(r"\b(O|0|A|B|AB)?\s*\(?(I{1,3}|IV)\)?\s*(Rh)?\s*([+-])", raw)
@@ -406,18 +417,26 @@ def _resolve_name(fields: dict[str, Field], key: str, mrz_name: str | None) -> N
             if r and (best is None or r[1] < best[0]):
                 best = (r[1], lat, r[0], source)
 
+    front_latin = en.value if en.note != "взято из MRZ" else None
+    disagree = bool(front_latin and mrz_name and not _same_name(front_latin, mrz_name))
     if best is not None:
         _, lat, fixed, source = best
         if fixed != cyr.value:
             cyr.note = f"исправлено по {source} (было {cyr.value})"
             cyr.value = fixed
         cyr.verified = True
+        if re.search("[ӮӢ]", fixed):  # Latin U/I cannot tell Ӯ from У or Ӣ from И
+            cyr.verified = None
+            cyr.note = (cyr.note + "; " if cyr.note else "") + "Ӯ/Ӣ не проверяются латиницей"
         if lat != en.value:
             en.note = (
                 f"исправлено по {'кириллице и MRZ' if source == 'MRZ' else 'кириллице'} (было {en.value})"
             )
             en.value = lat
         en.verified = True
+        if disagree:  # the two Latin reads differ: the choice may be wrong
+            en.verified = cyr.verified = False
+            en.note = f"латиница на карте ({front_latin}) и MRZ ({mrz_name}) расходятся"
         return
 
     # Cyrillic does not fit any Latin reading

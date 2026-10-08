@@ -7,10 +7,10 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from app import tess
 from app.config import get_settings
 from app.images import load_upload
 from app.passport import reader
+from app.passport.service import CardNotFound, read_passport
 from app.security import require_api_key
 
 # Personal data: nothing is logged or stored, images live only in memory for the request
@@ -46,34 +46,16 @@ def _side_info(s: reader.SideResult) -> SideInfo:
 
 
 def _process(images: list[tuple[str, object]]) -> dict:
-    """images: (upload field name, BGR array). The side is detected from the picture itself,
-    so it does not matter which file was sent as front or back."""
-    tess.init(settings.tesseract_cmd)
-    for lang in ("tgk", "eng", "ocrb"):
-        tess.langs_location(lang)  # clear error if a model is missing
-
-    sides: dict[str, reader.SideResult] = {}
-    warnings: list[str] = []
-    for upload, img in images:
-        r = reader.read_card(img)
-        if not r.recognized:
-            warnings.append(f"файл '{upload}': ID-карта не найдена")
-        elif r.side in sides:
-            warnings.append(f"файл '{upload}': повторно прислана сторона {r.side}, взята первая")
-        else:
-            if upload in ("front", "back") and upload != r.side:
-                warnings.append(f"файл '{upload}' оказался стороной {r.side}")
-            sides[r.side] = r
-    if not sides:
-        raise HTTPException(status_code=422, detail="На изображении не найдена таджикская ID-карта")
-
-    fields, merge_warnings = reader.merge(sides.get("front"), sides.get("back"))
-    back = sides.get("back")
+    try:
+        r = read_passport(images, settings)
+    except CardNotFound as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    back = r.sides.get("back")
     return {
-        "fields": {k: asdict(v) for k, v in fields.items()},
+        "fields": {k: asdict(v) for k, v in r.fields.items()},
         "mrz": reader.mrz_dict(back.mrz) if back else None,
-        "sides": {k: _side_info(v) for k, v in sides.items()},
-        "warnings": warnings + merge_warnings,
+        "sides": {k: _side_info(v) for k, v in r.sides.items()},
+        "warnings": r.warnings,
     }
 
 

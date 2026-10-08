@@ -1,9 +1,11 @@
 """Generate the synthetic benchmark (90 images): uv run python bench/make_set.py"""
 
-import json, random
+import json
+import random
 from pathlib import Path
+
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 random.seed(0)
 np.random.seed(0)
@@ -21,7 +23,6 @@ LINES = [
     "Шумораи аҳолӣ зиёда аз даҳ миллион нафар аст.",
     "Ҳукумат барномаи нави рақамикуниро қабул кард.",
 ]
-from pathlib import Path as _P
 
 _W = "C:/Windows/Fonts/"
 _L = "/usr/share/fonts/truetype/"
@@ -32,18 +33,18 @@ _CANDIDATES = {  # Windows font first, Linux fallback; all cover Tajik letters
     "bold": [_W + "arialbd.ttf", _L + "dejavu/DejaVuSans-Bold.ttf"],
     "mono": [_W + "cour.ttf", _L + "freefont/FreeMono.ttf"],
 }
-FONTS = {k: next((f for f in v if _P(f).exists()), None) for k, v in _CANDIDATES.items()}
+FONTS = {k: next((f for f in v if Path(f).exists()), None) for k, v in _CANDIDATES.items()}
 FONTS = {k: v for k, v in FONTS.items() if v}
 
 
 def render(lines, font, size=36):
     f = ImageFont.truetype(font, size)
     h = int(size * 1.7)
-    w = max(int(f.getlength(l)) for l in lines) + 80
+    w = max(int(f.getlength(line)) for line in lines) + 80
     img = Image.new("L", (w, h * len(lines) + 60), 255)
     d = ImageDraw.Draw(img)
-    for i, l in enumerate(lines):
-        d.text((40, 30 + i * h), l, fill=0, font=f)
+    for i, line in enumerate(lines):
+        d.text((40, 30 + i * h), line, fill=0, font=f)
     return img
 
 

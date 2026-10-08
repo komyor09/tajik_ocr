@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from app.config import get_settings
 from app.engines import ENGINES, get_engine, loaded_engines
+from app.hr.router import router as hr_router
 from app.images import load_upload
 from app.passport.router import router as passport_router
 from app.preprocess import deskew as deskew_image
@@ -49,8 +50,9 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Tajik OCR API", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="Tajik OCR API", version="0.4.0", lifespan=lifespan)
 app.include_router(passport_router)
+app.include_router(hr_router)
 
 
 @app.get("/health")

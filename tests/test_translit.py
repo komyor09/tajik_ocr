@@ -45,3 +45,21 @@ def test_repair_gives_up_on_different_names():
 def test_fix_words():
     assert fix_words("ДАР НОХИЯИ ВАХШ") == "ДАР НОҲИЯИ ВАХШ"
     assert fix_words("ВИЛОЯТИ СУГД") == "ВИЛОЯТИ СУҒД"
+
+
+@pytest.mark.parametrize(
+    "ocr, fixed",
+    [
+        ("ЗИДОЯТИ ХАТЛОН, ФАРХОР", "ВИЛОЯТИ ХАТЛОН, ФАРХОР"),
+        ("ЗИДОЯТИХАТЛОН, БОХТАР", "ВИЛОЯТИ ХАТЛОН, БОХТАР"),
+        ("ВИЛОЯТИ СУҒД, КОНИРОДОМ", "ВИЛОЯТИ СУҒД, КОНИБОДОМ"),
+        ("МКР 34 БИНОИ 38", "МКР 34 БИНОИ 38"),
+    ],
+)
+def test_fix_address_words(ocr, fixed):
+    assert fix_words(ocr) == fixed
+
+
+def test_invented_gap_is_dropped():
+    assert repair("ХОЛ ИҚОВ", "KHOLIQOV")[0] == "ХОЛИҚОВ"
+    assert repair("АБДУ РАҲМОН", "ABDU RAHMON")[0] == "АБДУ РАҲМОН"

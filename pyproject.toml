@@ -1,7 +1,7 @@
 [project]
 name = "tajik-ocr"
-version = "0.3.0"
-description = "FastAPI service for Tajik text recognition (OCR) (Tesseract tgk + PaddleOCR)"
+version = "0.4.0"
+description = "Tajik OCR and Tajik ID card reader with an HR API (FastAPI, Tesseract tgk, MRZ)"
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Komyor" }]

@@ -6,7 +6,12 @@ uv run python bench/run_bench.py easyocr        # needs: uv add easyocr
 Add --flatten to even out lighting before OCR.
 """
 
-import collections, difflib, json, re, sys, time
+import collections
+import difflib
+import json
+import re
+import sys
+import time
 from pathlib import Path
 
 import numpy as np

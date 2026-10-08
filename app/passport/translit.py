@@ -113,7 +113,9 @@ def repair(cyrillic: str, latin: str, max_changes: int = 3) -> tuple[str, int] |
                     if lat.startswith(spelling, j):
                         rest = best(i + 1, j + len(spelling), budget - cost)
                         if rest is not None:
-                            options.append((cost + rest[0], letter + rest[1]))
+                            # a space/hyphen with no Latin counterpart was invented by OCR: drop it
+                            kept = "" if letter in " -" and not spelling else letter
+                            options.append((cost + rest[0], kept + rest[1]))
             if budget >= 1:  # OCR invented a letter
                 rest = best(i + 1, j, budget - 1)
                 if rest is not None:
@@ -141,20 +143,38 @@ def matches(cyrillic: str, latin: str) -> bool:
 
 
 # Words that appear in addresses and issuing authorities on Tajik ID cards
-LEXICON = frozenset(
-    """
-ВИЛОЯТИ НОҲИЯИ НОҲИЯ ШАҲРИ ШАҲР ҶАМОАТИ ДЕҲАИ ДЕҲА КӮЧАИ КӮЧА ХОНАИ ХОНА ҲАВЛИИ МАҲАЛЛАИ ГУЗАРИ
-ХИЁБОНИ ДАР АЗ СОЛ ШВКД ШММ ВКД ВМКБ МАРКАЗИ ТОБЕИ ҶУМҲУРӢ
-СУҒД ХАТЛОН ДУШАНБЕ ХУҶАНД АШТ ИСТАРАВШАН КОНИБОДОМ ИСФАРА ПАНҶАКЕНТ БОХТАР КӮЛОБ ВАҲДАТ ҲИСОР
-ТУРСУНЗОДА РАШТ ШАҲРИТУС БОБОҶОН ҒАФУРОВ ҶАББОР РАСУЛОВ СПИТАМЕН МАСЧОҲ АЙНӢ ШАҲРИСТОН ЗАФАРОБОД
-ДЕВАШТИЧ ГУЛИСТОН БӮСТОН ГУЛИСТОН ХОРУҒ НОРАК ЁВОН ВАХШ РӮДАКӢ ФАЙЗОБОД ВАРЗОБ ТОҶИКОБОД ҚУБОДИЁН
-ДАНҒАРА ФАРХОР МӮЪМИНОБОД ПАНҶ ҶАЙҲУН ШӮРОБОД ХОВАЛИНГ БАЛҶУВОН ЛЕВАКАНД САРБАНД ҚАЙРОҚҚУМ ГУЛИСТОН
-""".split()
-)
+_ADDRESS_WORDS = """
+ВИЛОЯТИ НОҲИЯИ НОҲИЯ ШАҲРИ ШАҲР ҶАМОАТИ ДЕҲАИ ДЕҲА ҚИШЛОҚИ КӮЧАИ КӮЧА ХОНАИ ХОНА ҲАВЛИИ МАҲАЛЛАИ
+ГУЗАРИ ХИЁБОНИ БИНОИ ДАР АЗ СОЛ СОЛИ ШВКД ШММ ВКД ВМКБ НТМ МАРКАЗИ ТОБЕИ ҶУМҲУРӢ
+"""
+# Regions, cities and districts of Tajikistan (multi-word names split into words)
+_PLACES = """
+СУҒД ХАТЛОН ДУШАНБЕ ВМКБ НТМ БАДАХШОН
+ХУҶАНД ИСТАРАВШАН ИСФАРА КОНИБОДОМ ПАНҶАКЕНТ ГУЛИСТОН ҚАЙРОҚҚУМ БӮСТОН ЧКАЛОВСК АШТ ҒАФУРОВ БОБОҶОН
+ҶАББОР РАСУЛОВ СПИТАМЕН МАСТЧОҲ МАСЧОҲ КӮҲИСТОНИ ДЕВАШТИЧ ШАҲРИСТОН ЗАФАРОБОД АЙНӢ ТАБОШАР
+БОХТАР КӮЛОБ НОРАК ЛЕВАКАНД ВАХШ ДАНҒАРА ФАРХОР ВОСЕЪ ҲАМАДОНӢ МӮЪМИНОБОД БАЛҶУВОН ХОВАЛИНГ
+ШАМСИДДИН ШОҲИН ТЕМУРМАЛИК ҚУБОДИЁН ШАҲРИТУС НОСИРИ ХУСРАВ ҶАЙҲУН ДӮСТӢ ПАНҶ ҶАЛОЛИДДИНИ БАЛХӢ
+ХУРОСОН АБДУРАҲМОНИ ҶОМӢ КУШОНИЁН ЁВОН ВАҲДАТ ҲИСОР ТУРСУНЗОДА РӮДАКӢ ШАҲРИНАВ ВАРЗОБ ФАЙЗОБОД
+РОҒУН НУРОБОД РАШТ ТОҶИКОБОД ЛАХШ САНГВОР ХОРУҒ ВАНҶ ДАРВОЗ ИШКОШИМ МУРҒОБ РОШТҚАЛЪА РӮШОН ШУҒНОН
+СИНО ФИРДАВСӢ ИСМОИЛИ СОМОНӢ ШОҲМАНСУР НАВБАҲОР
+"""
+PLACES = frozenset(_PLACES.split())
+LEXICON = frozenset(_ADDRESS_WORDS.split()) | PLACES
+# Address words that are often glued to the next word by OCR ("ВИЛОЯТИСУҒД")
+_GLUE_PREFIXES = ("ВИЛОЯТИ", "ҶАМОАТИ", "НОҲИЯИ", "ШАҲРИ", "КӮЧАИ", "ХОНАИ", "БИНОИ", "ДЕҲАИ")
+
+
+def _closest(word: str, lexicon: frozenset[str], cutoff: float) -> str | None:
+    import difflib
+
+    m = difflib.get_close_matches(word, lexicon, n=1, cutoff=cutoff)
+    return m[0] if m else None
 
 
 def fix_words(text: str, lexicon: frozenset[str] = LEXICON) -> str:
-    """Replace words that are one or two confusable letters away from a known word (НОХИЯИ -> НОҲИЯИ)."""
+    """Repair address words against a lexicon of address terms and place names:
+    one confusable letter (НОХИЯИ -> НОҲИЯИ), a close misreading of a long word
+    (ЗИДОЯТИ -> ВИЛОЯТИ, КОНИРОДОМ -> КОНИБОДОМ) and glued words (ВИЛОЯТИХАТЛОН)."""
 
     def fix(word: str) -> str:
         if word in lexicon or len(word) < 3:
@@ -164,6 +184,15 @@ def fix_words(text: str, lexicon: frozenset[str] = LEXICON) -> str:
                 candidate = word[:pos] + alt + word[pos + 1 :]
                 if candidate in lexicon:
                     return candidate
+        keyword = _closest(word, frozenset(_GLUE_PREFIXES), 0.7)  # frequent address terms: looser match
+        if keyword:
+            return keyword
+        for prefix in _GLUE_PREFIXES:  # glued: fuzzy prefix + a real word
+            head, tail = word[: len(prefix)], word[len(prefix) :]
+            if len(tail) >= 3 and _closest(head, frozenset({prefix}), 0.7):
+                return f"{prefix} {fix(tail)}"
+        if len(word) >= 5:
+            return _closest(word, lexicon, 0.8) or word
         return word
 
     return re.sub(r"[А-ЯЁҒӢҚӮҲҶ]+", lambda m: fix(m.group(0)), text)
