@@ -18,6 +18,7 @@
 | **`POST /hr/passport`** | **Две стороны ID-карты → анкета сотрудника из 18 полей на `tg` или `en`, с `scores` и `needs_review`.** Для HR-модуля. → [docs/hr-api.md](docs/hr-api.md) |
 | `POST /passport` | Все поля карты с исходным чтением OCR, уверенностью, сверкой с MRZ и пояснениями |
 | `POST /ocr` | Любой таджикский текст на изображении (Tesseract `tgk`, опционально PaddleOCR) |
+| `GET /` · `GET /try` | Лендинг и страница «API без кода»: загрузка фото, результат таблицей, экспорт JSON/CSV, готовый код. 4 языка: тоҷикӣ, oʻzbekcha, русский, English |
 
 ```powershell
 curl.exe -F "front=@front.jpg" -F "back=@back.jpg" "http://localhost:8000/hr/passport?lang=tg"
@@ -78,7 +79,8 @@ curl.exe -F "front=@front.jpg" -F "back=@back.jpg" "http://localhost:8000/hr/pas
    copy .env.example .env
    uv run uvicorn app.main:app --port 8000
    ```
-3. Откройте `http://localhost:8000/docs`.
+3. Откройте `http://localhost:8000` (сайт), `http://localhost:8000/try` (проверка без кода)
+   или `http://localhost:8000/docs` (Swagger).
 
 Настройки, продакшен, API-ключ — [docs/setup.md](docs/setup.md).
 

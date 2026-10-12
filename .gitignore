@@ -7,6 +7,7 @@ __pycache__/
 
 # Local config and secrets
 .env
+tesseract-ocr-w64-setup-5.5.3.20260724.exe
 
 # Personal data: real document scans never go to git
 samples/

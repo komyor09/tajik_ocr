@@ -17,6 +17,7 @@ from app.passport.router import router as passport_router
 from app.preprocess import deskew as deskew_image
 from app.preprocess import flatten_lighting
 from app.security import require_api_key
+from app.web.router import mount_web
 
 log = logging.getLogger("uvicorn.error")
 settings = get_settings()
@@ -53,6 +54,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Tajik OCR API", version="0.4.0", lifespan=lifespan)
 app.include_router(passport_router)
 app.include_router(hr_router)
+mount_web(app)  # landing page (/) and no-code playground (/try)
 
 
 @app.get("/health")
