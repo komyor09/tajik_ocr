@@ -82,7 +82,7 @@ curl.exe -F "front=@front.jpg" -F "back=@back.jpg" "http://localhost:8000/hr/pas
 3. Откройте `http://localhost:8000` (сайт), `http://localhost:8000/try` (проверка без кода)
    или `http://localhost:8000/docs` (Swagger).
 
-Настройки, продакшен, API-ключ — [docs/setup.md](docs/setup.md).
+Настройки, продакшен, API-ключ — [docs/setup.md](docs/setup.md). Docker: `docker compose up -d --build` — [docs/deploy.md](docs/deploy.md).
 
 ## Документация
 
@@ -92,6 +92,7 @@ curl.exe -F "front=@front.jpg" -F "back=@back.jpg" "http://localhost:8000/hr/pas
 | [docs/api.md](docs/api.md) | Справочник всех эндпоинтов и ошибок |
 | [docs/architecture.md](docs/architecture.md) | Конвейер, модули, решения и ограничения |
 | [docs/setup.md](docs/setup.md) | Установка, настройки `.env`, запуск в продакшене |
+| [docs/deploy.md](docs/deploy.md) | Docker-деплой, nginx, требования к серверу |
 | [docs/testing.md](docs/testing.md) | Тесты, генератор образцов, оценка качества, бенчмарк |
 | [docs/privacy.md](docs/privacy.md) | Персональные данные: правила сервиса и репозитория |
 

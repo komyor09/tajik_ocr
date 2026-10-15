@@ -1,0 +1,25 @@
+# Keep the build context small and never ship secrets or personal data into the image
+.git
+.github
+.idea
+.vscode
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+
+.env
+*.exe
+samples/
+bench/
+tests/
+docs/
+models/
+Claude outputs/
+_to_delete/
+*.jpg
+*.jpeg
+*.tgz
+uv.lock
+main.py

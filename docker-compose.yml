@@ -1,0 +1,36 @@
+# Production run:
+#   cp .env.example .env    # set API_KEY, adjust settings
+#   docker compose up -d --build
+#
+# The API listens on 127.0.0.1:8000 only — put nginx/Caddy with HTTPS in front of it.
+# To expose it directly (not recommended), change the port to "8000:8000".
+
+services:
+  tajik-ocr:
+    build: .
+    image: tajik-ocr:latest
+    container_name: tajik-ocr
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # uvicorn worker processes: 1 for 2 GB RAM, 2 for 4 GB+ (a worker peaks at ~0.8–1 GB on /passport)
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
+      OCR_ENGINE: tesseract   # PaddleOCR is not installed in the image
+    ports:
+      - "127.0.0.1:${PORT:-8000}:8000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
