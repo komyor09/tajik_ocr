@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 from app import tess
+from app.config import get_settings
 from app.passport import card as cardmod
 from app.passport import layout, mrz, translit
 from app.passport.align import align
@@ -45,7 +46,8 @@ COUNTRY_CODES = [
 OPTIONAL = {"blood_group"}
 DIGIT_LENGTHS = {"national_id": 13, "tax_id": 9}  # Рақами ягонаи миллӣ, РМА  # often left blank on the card
 
-_pool = ThreadPoolExecutor(max_workers=4)  # tesseract runs as a subprocess, threads parallelise it
+# Tesseract runs as a subprocess, so threads do parallelise it; keep it ~ the number of CPU cores
+_pool = ThreadPoolExecutor(max_workers=get_settings().ocr_threads)
 
 
 @dataclass

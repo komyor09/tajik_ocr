@@ -17,8 +17,10 @@
 |---|---|
 | **`POST /hr/passport`** | **Две стороны ID-карты → анкета сотрудника из 18 полей на `tg` или `en`, с `scores` и `needs_review`.** Для HR-модуля. → [docs/hr-api.md](docs/hr-api.md) |
 | `POST /passport` | Все поля карты с исходным чтением OCR, уверенностью, сверкой с MRZ и пояснениями |
-| `POST /ocr` | Любой таджикский текст на изображении (Tesseract `tgk`, опционально PaddleOCR) |
-| `GET /` · `GET /try` | Лендинг и страница «API без кода»: загрузка фото, результат таблицей, экспорт JSON/CSV, готовый код. 4 языка: тоҷикӣ, oʻzbekcha, русский, English |
+| `POST /ocr` | Любой таджикский текст на изображении (Tesseract `tgk`) |
+| `GET /health` · `GET /docs` | Healthcheck и Swagger |
+
+> Ветка `internal-deploy`: только API и Swagger для внутреннего сервера, запуск в Docker — [DEPLOY.md](DEPLOY.md).
 
 ```powershell
 curl.exe -F "front=@front.jpg" -F "back=@back.jpg" "http://localhost:8000/hr/passport?lang=tg"
@@ -43,7 +45,7 @@ curl.exe -F "front=@front.jpg" -F "back=@back.jpg" "http://localhost:8000/hr/pas
 }
 ```
 
-<sub>Данные вымышленные — образец из `scripts/make_specimens.py`.</sub>
+<sub>Данные вымышленные.</sub>
 
 ## Как это работает — коротко
 
@@ -59,7 +61,7 @@ curl.exe -F "front=@front.jpg" -F "back=@back.jpg" "http://localhost:8000/hr/pas
 
 ## Качество
 
-Вымышленные образцы, `/hr/passport` (подробности — [docs/testing.md](docs/testing.md)):
+Вымышленные образцы, `/hr/passport` (замеры из ветки `main`, где лежит генератор образцов):
 
 | Набор | Верно (`tg` / `en`) | Ошибок без пометки `needs_review` |
 |---|---|---|
@@ -69,20 +71,15 @@ curl.exe -F "front=@front.jpg" -F "back=@back.jpg" "http://localhost:8000/hr/pas
 ФИО, пол, даты, личный номер и номер документа на «фото» — 28–30 из 30. Слабые места:
 РМА/ИНН и части адреса — они честно уходят в `needs_review`.
 
-## Быстрый старт (Windows)
+## Запуск
 
-1. Установите [Tesseract](https://github.com/UB-Mannheim/tesseract/wiki) и [uv](https://docs.astral.sh/uv/).
-2. В папке проекта:
-   ```powershell
-   uv sync
-   uv run python scripts/download_models.py
-   copy .env.example .env
-   uv run uvicorn app.main:app --port 8000
-   ```
-3. Откройте `http://localhost:8000` (сайт), `http://localhost:8000/try` (проверка без кода)
-   или `http://localhost:8000/docs` (Swagger).
-
-Настройки, продакшен, API-ключ — [docs/setup.md](docs/setup.md). Docker: `docker compose up -d --build` — [docs/deploy.md](docs/deploy.md).
+- **Docker** (сервер): [DEPLOY.md](DEPLOY.md).
+- **Локально** (нужны [Tesseract](https://github.com/UB-Mannheim/tesseract/wiki) и [uv](https://docs.astral.sh/uv/)):
+  ```powershell
+  uv sync
+  uv run python scripts/download_models.py        # -> models/tessdata
+  uv run uvicorn app.main:app --port 8000          # Swagger: http://localhost:8000/docs
+  ```
 
 ## Документация
 
@@ -91,18 +88,16 @@ curl.exe -F "front=@front.jpg" -F "back=@back.jpg" "http://localhost:8000/hr/pas
 | [docs/hr-api.md](docs/hr-api.md) | HR API: поля, языки, `scores`, `needs_review`, примеры для Laravel/Python |
 | [docs/api.md](docs/api.md) | Справочник всех эндпоинтов и ошибок |
 | [docs/architecture.md](docs/architecture.md) | Конвейер, модули, решения и ограничения |
-| [docs/setup.md](docs/setup.md) | Установка, настройки `.env`, запуск в продакшене |
-| [docs/deploy.md](docs/deploy.md) | Docker-деплой, nginx, требования к серверу |
-| [docs/testing.md](docs/testing.md) | Тесты, генератор образцов, оценка качества, бенчмарк |
+| [DEPLOY.md](DEPLOY.md) | Docker, переменные окружения, nginx, ресурсы |
+| [docs/testing.md](docs/testing.md) | Тесты |
 | [docs/privacy.md](docs/privacy.md) | Персональные данные: правила сервиса и репозитория |
 
 ## Разработка
 
 ```powershell
-uv sync --extra paddle
+uv sync
 uv run pytest -q
 uvx ruff check app tests scripts
-uv run python scripts/make_specimens.py -n 30 --photo && uv run python scripts/eval_specimens.py
 ```
 
 ## Ограничения

@@ -1,25 +1,27 @@
-# Keep the build context small and never ship secrets or personal data into the image
+# Only requirements.txt, app/ and scripts/download_models.py are needed to build the image
 .git
 .github
 .idea
 .vscode
 .venv
+venv
 **/__pycache__
 **/*.pyc
 .pytest_cache
 .ruff_cache
 
 .env
-*.exe
-samples/
-bench/
+models/
 tests/
 docs/
-models/
+samples/
+bench/
 Claude outputs/
 _to_delete/
+*.exe
 *.jpg
 *.jpeg
+*.png
+!app/passport/templates/*.png
 *.tgz
 uv.lock
-main.py

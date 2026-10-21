@@ -26,3 +26,4 @@ bench/gt.json
 .vscode/
 _to_delete/
 *.tgz
+*.bundle

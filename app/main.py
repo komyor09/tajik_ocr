@@ -1,104 +1,67 @@
-"""FastAPI app: POST an image, get Tajik text back."""
+"""Tajik OCR API: text OCR, Tajik ID card reader, HR record. API + Swagger only."""
 
 import logging
-import time
+import sys
 from contextlib import asynccontextmanager
-from typing import Literal
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
+from app import ocr, tess
 from app.config import get_settings
-from app.engines import ENGINES, get_engine, loaded_engines
 from app.hr.router import router as hr_router
-from app.images import load_upload
+from app.passport import align
 from app.passport.router import router as passport_router
-from app.preprocess import deskew as deskew_image
-from app.preprocess import flatten_lighting
-from app.security import require_api_key
-from app.web.router import mount_web
 
-log = logging.getLogger("uvicorn.error")
 settings = get_settings()
-
-EngineName = Literal["tesseract", "paddle"]
-
-
-class LineOut(BaseModel):
-    text: str
-    score: float
-    box: list[list[int]]
+log = logging.getLogger("tajik_ocr")
 
 
-class OcrResponse(BaseModel):
-    engine: str
-    text: str
-    lines: list[LineOut]
-    width: int
-    height: int
-    deskew_angle: float  # boxes are in the coordinates of the straightened image
-    elapsed_ms: int
+def setup_logging(level: str) -> None:
+    """All logs (ours and uvicorn's) go to stdout in one format."""
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    for name in ("", "uvicorn", "uvicorn.error", "uvicorn.access"):
+        logger = logging.getLogger(name)
+        logger.handlers = [handler]
+        logger.propagate = False
+        logger.setLevel(level.upper())
+    # Docker calls /health every 30 s: keep it out of the access log
+    logging.getLogger("uvicorn.access").addFilter(lambda record: "/health" not in record.getMessage())
+
+
+setup_logging(settings.log_level)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if settings.engine not in ENGINES:
-        raise RuntimeError(f"OCR_ENGINE={settings.engine!r}; допустимо: {', '.join(ENGINES)}")
-    log.info("Loading default OCR engine: %s", settings.engine)
-    engine = await run_in_threadpool(get_engine, settings.engine, settings)
-    log.info("Ready: %s", engine.info())
+    # Everything heavy is done once here, not on each request. Fails fast if models are missing.
+    langs = set(tess.PASSPORT_LANGS) | set(settings.tesseract_lang.split("+"))
+    version = tess.init(settings.tesseract_cmd, settings.tessdata_dir, langs)
+    await run_in_threadpool(align.load_templates)  # SIFT keypoints of the ID card templates
+    app.state.tesseract_version = version
+    log.info("Ready: tesseract %s, models %s, langs %s", version, settings.tessdata_dir, sorted(langs))
     yield
 
 
-app = FastAPI(title="Tajik OCR API", version="0.4.0", lifespan=lifespan)
+app = FastAPI(
+    title="Tajik OCR API",
+    version="0.5.0",
+    description="Распознавание таджикского текста и ID-карты Республики Таджикистан. "
+    "Изображения не сохраняются и не логируются.",
+    lifespan=lifespan,
+)
+app.include_router(ocr.router)
 app.include_router(passport_router)
 app.include_router(hr_router)
-mount_web(app)  # landing page (/) and no-code playground (/try)
 
 
-@app.get("/health")
+class HealthResponse(BaseModel):
+    status: str
+    tesseract: str
+
+
+@app.get("/health", response_model=HealthResponse, tags=["service"], summary="Проверка работоспособности")
 def health():
-    return {
-        "status": "ok",
-        "default_engine": settings.engine,
-        "flatten": settings.flatten,
-        "deskew": settings.deskew,
-        "engines": {name: e.info() for name, e in loaded_engines().items()},
-    }
-
-
-@app.post("/ocr", response_model=OcrResponse, dependencies=[Depends(require_api_key)])
-async def ocr(
-    file: UploadFile = File(..., description="Изображение с текстом"),
-    engine: EngineName | None = Query(None, description="Движок; по умолчанию OCR_ENGINE"),
-    flatten: bool | None = Query(None, description="Выравнивать освещение; по умолчанию OCR_FLATTEN"),
-    deskew: bool | None = Query(None, description="Выпрямлять наклонный текст; по умолчанию OCR_DESKEW"),
-    min_score: float | None = Query(None, ge=0, le=1, description="Отбросить строки с уверенностью ниже"),
-):
-    image, width, height = await load_upload(file, settings.max_upload_mb)
-    name = engine or settings.engine
-    try:
-        ocr_engine = await run_in_threadpool(get_engine, name, settings)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e)) from e
-
-    started = time.perf_counter()
-    angle = 0.0
-    if settings.flatten if flatten is None else flatten:
-        image = flatten_lighting(image)
-    if settings.deskew if deskew is None else deskew:
-        image, angle = deskew_image(image)
-    lines = await run_in_threadpool(ocr_engine.recognize, image)
-    threshold = settings.min_score if min_score is None else min_score
-    lines = [ln for ln in lines if ln.score >= threshold]
-
-    return OcrResponse(
-        engine=name,
-        text="\n".join(ln.text for ln in lines),
-        lines=[LineOut(**ln.__dict__) for ln in lines],
-        width=width,
-        height=height,
-        deskew_angle=angle,
-        elapsed_ms=int((time.perf_counter() - started) * 1000),
-    )
+    return HealthResponse(status="ok", tesseract=app.state.tesseract_version)

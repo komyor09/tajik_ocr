@@ -1,76 +1,39 @@
-"""Shared Tesseract plumbing: binary lookup, model directory, OCR of one image region."""
+"""Shared Tesseract plumbing: binary and model check at startup, OCR of one image region."""
 
 import os
 import shutil
-import threading
 from pathlib import Path
 
 import numpy as np
 import pytesseract
 from pytesseract import Output
 
-# Project-local models (tgk/eng from tessdata_best, ocrb for MRZ): scripts/download_models.py
-MODELS_DIR = Path(__file__).resolve().parent.parent / "models" / "tessdata"
-WINDOWS_DEFAULT = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+WINDOWS_DEFAULT = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")  # local development on Windows
 
-_init_lock = threading.Lock()
-_version: str | None = None
+# tgk - Tajik text, eng - Latin text on the card, ocrb - MRZ font
+PASSPORT_LANGS = ("tgk", "eng", "ocrb")
 
 
-def init(cmd_override: str | None = None) -> str:
-    """Find the tesseract binary once. Returns its version."""
-    global _version
-    with _init_lock:
-        if _version:
-            return _version
-        cmd = cmd_override or shutil.which("tesseract")
-        if not cmd and WINDOWS_DEFAULT.exists():
-            cmd = str(WINDOWS_DEFAULT)
-        if not cmd:
-            raise RuntimeError(
-                "Tesseract не найден. Установи его (https://github.com/UB-Mannheim/tesseract/wiki) "
-                "или укажи путь в TESSERACT_CMD."
-            )
-        pytesseract.pytesseract.tesseract_cmd = cmd
-        _version = str(pytesseract.get_tesseract_version())
-        return _version
+def init(cmd: str | None, tessdata_dir: str, langs: set[str]) -> str:
+    """Find the tesseract binary and check the models. Called once at startup. Returns the version.
 
-
-def _models_arg() -> str | None:
-    """'--tessdata-dir <relative path>' if project models exist.
-
-    The path is relative to the working directory on purpose: pytesseract cannot pass paths
-    with spaces on Windows (e.g. 'Desktop\\tajik ocr').
+    Raises RuntimeError with a clear message if something is missing.
     """
-    if not MODELS_DIR.is_dir():
-        return None
-    try:
-        rel = os.path.relpath(MODELS_DIR)
-    except ValueError:  # different drive on Windows
-        return None
-    if " " in rel:
-        return None
-    return f"--tessdata-dir {rel.replace(os.sep, '/')}"
+    cmd = cmd or shutil.which("tesseract") or (str(WINDOWS_DEFAULT) if WINDOWS_DEFAULT.exists() else None)
+    if not cmd:
+        raise RuntimeError("Tesseract не найден: установите его или укажите путь в TESSERACT_CMD")
+    pytesseract.pytesseract.tesseract_cmd = cmd
 
-
-def _project_langs() -> set[str]:
-    if not _models_arg():
-        return set()
-    return {p.stem for p in MODELS_DIR.glob("*.traineddata")}
-
-
-def langs_location(lang: str) -> str:
-    """'project' | 'system' | raises if a language is missing everywhere."""
-    parts = lang.split("+")
-    if all(p in _project_langs() for p in parts):
-        return "project"
-    system = set(pytesseract.get_languages(config=""))
-    missing = [p for p in parts if p not in system]
+    models = Path(tessdata_dir).resolve()
+    missing = [lang for lang in sorted(langs) if not (models / f"{lang}.traineddata").is_file()]
     if missing:
         raise RuntimeError(
-            f"Нет моделей Tesseract: {', '.join(missing)}. Запусти: uv run python scripts/download_models.py"
+            f"Нет моделей Tesseract в {models}: {', '.join(missing)}. "
+            "Скачайте их: python scripts/download_models.py (см. DEPLOY.md)"
         )
-    return "system"
+    # Tesseract reads models from TESSDATA_PREFIX; every tesseract process started later inherits it
+    os.environ["TESSDATA_PREFIX"] = str(models)
+    return str(pytesseract.get_tesseract_version())
 
 
 def read(
@@ -82,14 +45,12 @@ def read(
     """
     if whitelist is not None and not whitelist.isascii():
         raise ValueError("whitelist must be ASCII")
-    config = [f"--psm {psm}"]
-    if langs_location(lang) == "project":
-        config.insert(0, _models_arg())
+    config = f"--psm {psm}"
     if whitelist:
-        config.append(f"-c tessedit_char_whitelist={whitelist}")
+        config += f" -c tessedit_char_whitelist={whitelist}"
     if image.ndim == 3:
         image = image[:, :, ::-1]  # BGR -> RGB
-    data = pytesseract.image_to_data(image, lang=lang, config=" ".join(config), output_type=Output.DICT)
+    data = pytesseract.image_to_data(image, lang=lang, config=config, output_type=Output.DICT)
 
     words, lines = [], {}
     for i, text in enumerate(data["text"]):

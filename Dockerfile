@@ -1,56 +1,48 @@
-# Tajik OCR API — production image (Tesseract engine only, without PaddleOCR)
+# Tajik OCR API — internal API service (Tesseract, CPU only)
 #
-#   docker compose up -d --build
+#   docker build -t tajik-ocr .
+#   docker run -d -p 8000:8000 -v /srv/models:/models:ro --env-file .env tajik-ocr
 #
-# Debian trixie ships Tesseract 5.5 (same major version as the Windows dev setup).
+# Tesseract models are NOT in the image: they are read from the /models volume (see DEPLOY.md).
 
-# ---------- stage 1: Python dependencies + Tesseract models ----------
-FROM python:3.12-slim-trixie AS build
+# ---------- stage 1: Python dependencies ----------
+FROM python:3.12-slim AS build
 
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
-
-WORKDIR /build
+RUN python -m venv /opt/venv
+# requirements.txt first: this layer is rebuilt only when dependencies change, not on code edits
 COPY requirements.txt .
-# On a server OpenCV needs no GUI: the headless build has the same cv2 API without libGL/Qt
-RUN python -m venv /opt/venv \
- && grep -v '^opencv-contrib-python' requirements.txt > requirements.docker.txt \
- && /opt/venv/bin/pip install -r requirements.docker.txt opencv-contrib-python-headless==4.10.0.84
-
-# Models are gitignored, so they are downloaded at build time (tgk, eng, ocrb ≈ 31 MB)
-COPY scripts/download_models.py scripts/download_models.py
-RUN python scripts/download_models.py
+RUN /opt/venv/bin/pip install -r requirements.txt
 
 
 # ---------- stage 2: runtime ----------
-FROM python:3.12-slim-trixie
+FROM python:3.12-slim
 
-# Only the Tesseract binary: the models come from the project, not from apt
+# Only the Tesseract binary; its language packs from apt are not used (models come from /models)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends tesseract-ocr \
  && rm -rf /var/lib/apt/lists/*
 
-# OMP_THREAD_LIMIT=1: the passport reader already runs several Tesseract processes in parallel,
-#   extra OpenMP threads per process only fight for the same cores.
-# WEB_CONCURRENCY: number of uvicorn worker processes (override in docker-compose / .env).
+# OMP_THREAD_LIMIT=1: the passport reader already runs OCR_THREADS Tesseract processes in parallel,
+# extra OpenMP threads inside each process only fight for the same 2 cores.
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     OMP_THREAD_LIMIT=1 \
-    WEB_CONCURRENCY=1
+    TESSDATA_DIR=/models/tessdata
 
-RUN useradd --system --uid 10001 --home-dir /app ocr
+RUN useradd --system --uid 10001 --no-create-home app
 
-# WORKDIR matters: app/tess.py passes models/tessdata to Tesseract as a relative path
 WORKDIR /app
 COPY --from=build /opt/venv /opt/venv
-COPY --from=build /build/models ./models
+COPY scripts/download_models.py scripts/download_models.py
 COPY app ./app
 
-USER ocr
+USER app
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", \
-     "--proxy-headers", "--forwarded-allow-ips", "*", "--timeout-keep-alive", "10"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", \
+     "--proxy-headers", "--forwarded-allow-ips", "*"]

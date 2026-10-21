@@ -1,32 +1,26 @@
 [project]
 name = "tajik-ocr"
-version = "0.4.0"
+version = "0.5.0"
 description = "Tajik OCR and Tajik ID card reader with an HR API (FastAPI, Tesseract tgk, MRZ)"
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Komyor" }]
 requires-python = ">=3.12,<3.14"
 dependencies = [
-    "fastapi>=0.142.4",
-    "opencv-contrib-python>=4.10",
-    "pillow>=12.3.0",
-    "pytesseract>=0.3.13",
-    "python-multipart>=0.0.32",
-    "pyyaml>=6.0.2",
-    "uvicorn[standard]>=0.54.0",
-]
-
-[project.optional-dependencies]
-# Second engine (heavy, ~1 GB): uv sync --extra paddle
-paddle = [
-    "paddleocr==3.7.0",
-    "paddlepaddle==3.3.1",
+    "fastapi==0.142.4",
+    "uvicorn==0.54.0",
+    "python-multipart==0.0.32",
+    "pydantic-settings==2.16.1",
+    "pillow==12.3.0",
+    "numpy==2.3.5",
+    "opencv-python-headless==4.10.0.84",
+    "pytesseract==0.3.13",
 ]
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
-    "pytest>=9.1.1",
+    "httpx==0.28.1",
+    "pytest==9.1.1",
 ]
 
 [tool.pytest.ini_options]

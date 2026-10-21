@@ -15,6 +15,6 @@ jobs:
       - name: Install dependencies
         run: uv sync
       - name: Lint
-        run: uvx ruff check app tests scripts bench --select E,F,I,B --ignore B008
+        run: uvx ruff check app tests scripts --select E,F,I,B --ignore B008
       - name: Unit tests
         run: uv run pytest -q

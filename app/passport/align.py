@@ -40,7 +40,8 @@ _lock = threading.Lock()
 _state: dict = {}
 
 
-def _init():
+def load_templates() -> dict:
+    """Load the card templates once (called at startup); later calls return the same state."""
     with _lock:
         if not _state:
             sift = cv2.SIFT_create(nfeatures=4000)
@@ -83,7 +84,7 @@ def _sane(h_query_to_card: np.ndarray, query_shape) -> bool:
 
 def align(image_bgr: np.ndarray) -> Alignment | None:
     """Best matching side and the card warped to CARD_W x CARD_H, or None if no card is found."""
-    st = _init()
+    st = load_templates()
     scale = min(1.0, MAX_SIDE / max(image_bgr.shape[:2]))
     small = (
         cv2.resize(image_bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)

@@ -7,7 +7,6 @@
 ```
 POST /hr/passport?lang=tg|en
 Content-Type: multipart/form-data
-X-API-Key: <ключ>        # если в .env задан API_KEY
 ```
 
 | Параметр | Где | Обязательный | Описание |
@@ -17,7 +16,7 @@ X-API-Key: <ключ>        # если в .env задан API_KEY
 | `lang` | query или поле формы | нет | `tg` (по умолчанию) или `en`. Принимаются и `tj`, `tgk`, `tajik`, `eng`, `english` |
 
 Стороны определяются по самим изображениям: если перепутать `front` и `back`, ответ будет тем же
-(в `warnings` появится замечание). Форматы: JPG, PNG, WEBP, BMP, TIFF; до `OCR_MAX_UPLOAD_MB` (15 МБ).
+(в `warnings` появится замечание). Форматы: JPG, PNG, WEBP, BMP, TIFF; до `MAX_UPLOAD_MB` (10 МБ) каждый.
 
 ## Ответ
 
@@ -147,26 +146,23 @@ X-API-Key: <ключ>        # если в .env задан API_KEY
 | Код | Когда |
 |---|---|
 | 400 | неизвестный `lang`, пустой файл |
-| 401 | задан `API_KEY`, а `X-API-Key` неверный или отсутствует |
-| 413 | файл больше `OCR_MAX_UPLOAD_MB` |
+| 413 | файл больше `MAX_UPLOAD_MB` |
 | 415 | файл не является изображением |
 | 422 | ни на одном снимке не найдена таджикская ID-карта; не передан `front` или `back` |
-| 503 | не установлен Tesseract или нет моделей (`tgk`, `eng`, `ocrb`) |
+| 503 | сбой Tesseract (без моделей сервис не стартует вовсе) |
 
 ## Примеры вызова
 
 PowerShell:
 ```powershell
-curl.exe -H "X-API-Key: $env:API_KEY" -F "front=@front.jpg" -F "back=@back.jpg" `
-  "http://localhost:8000/hr/passport?lang=tg"
+curl.exe -F "front=@front.jpg" -F "back=@back.jpg" "http://<сервер>/ocr/hr/passport?lang=tg"
 ```
 
 Laravel (HTTP-клиент):
 ```php
 use Illuminate\Support\Facades\Http;
 
-$response = Http::withHeaders(['X-API-Key' => config('services.tajik_ocr.key')])
-    ->timeout(30)
+$response = Http::timeout(30)
     ->attach('front', $request->file('front')->get(), 'front.jpg')
     ->attach('back', $request->file('back')->get(), 'back.jpg')
     ->post(config('services.tajik_ocr.url') . '/hr/passport', ['lang' => app()->getLocale() === 'en' ? 'en' : 'tg']);
@@ -185,10 +181,9 @@ import httpx
 
 with open("front.jpg", "rb") as f, open("back.jpg", "rb") as b:
     r = httpx.post(
-        "http://localhost:8000/hr/passport",
+        "http://<сервер>/ocr/hr/passport",
         params={"lang": "en"},
         files={"front": f, "back": b},
-        headers={"X-API-Key": "..."},
         timeout=30,
     )
 r.raise_for_status()

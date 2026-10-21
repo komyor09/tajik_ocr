@@ -3,39 +3,43 @@
 import time
 from dataclasses import asdict
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.images import load_upload
 from app.passport import reader
 from app.passport.service import CardNotFound, read_passport
-from app.security import require_api_key
 
 # Personal data: nothing is logged or stored, images live only in memory for the request
-router = APIRouter(prefix="/passport", tags=["passport"], dependencies=[Depends(require_api_key)])
+ERRORS = {
+    413: {"description": "Файл больше MAX_UPLOAD_MB"},
+    415: {"description": "Не изображение (JPG, PNG, WEBP, BMP, TIFF)"},
+    422: {"description": "ID-карта не найдена на изображении"},
+}
+router = APIRouter(prefix="/passport", tags=["passport"], responses=ERRORS)
 settings = get_settings()
 
 
 class FieldOut(BaseModel):
-    value: str | None
-    raw: str
-    confidence: float
-    verified: bool | None = None
+    value: str | None = Field(description="Итоговое значение (после сверки с MRZ)")
+    raw: str = Field(description="Что прочитал OCR")
+    confidence: float = Field(description="Уверенность 0..1")
+    verified: bool | None = Field(None, description="true — подтверждено MRZ, false — противоречит MRZ")
     note: str | None = None
 
 
 class SideInfo(BaseModel):
     recognized: bool
-    method: str  # "template" (aligned to the card design) | "contour" (fallback) | "none"
-    match_score: int  # keypoints matched with the template; < 60 means a poor picture
-    rotated: bool  # card was upside down
+    method: str = Field(description="template (по шаблону карты) | contour (запасной) | none")
+    match_score: int = Field(description="Совпавшие точки с шаблоном; < 60 — плохое фото")
+    rotated: bool = Field(description="Карта была перевёрнута")
 
 
 class PassportResponse(BaseModel):
-    fields: dict[str, FieldOut]
-    mrz: dict | None
+    fields: dict[str, FieldOut] = Field(description="Поля карты: surname, name, date_of_birth, ...")
+    mrz: dict | None = Field(description="Разобранная MRZ с обратной стороны")
     sides: dict[str, SideInfo]
     warnings: list[str]
     elapsed_ms: int
@@ -47,7 +51,7 @@ def _side_info(s: reader.SideResult) -> SideInfo:
 
 def _process(images: list[tuple[str, object]]) -> dict:
     try:
-        r = read_passport(images, settings)
+        r = read_passport(images)
     except CardNotFound as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     back = r.sides.get("back")
@@ -64,7 +68,7 @@ async def _run(uploads: dict[str, UploadFile | None]) -> dict:
     started = time.perf_counter()
     try:
         result = await run_in_threadpool(_process, images)
-    except RuntimeError as e:  # tesseract / models missing
+    except RuntimeError as e:  # Tesseract failed
         raise HTTPException(status_code=503, detail=str(e)) from e
     result["elapsed_ms"] = int((time.perf_counter() - started) * 1000)
     return result

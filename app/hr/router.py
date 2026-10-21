@@ -2,7 +2,7 @@
 
 import time
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
@@ -10,9 +10,8 @@ from app.config import get_settings
 from app.hr.mapping import HR_FIELDS, LANGS, build_record
 from app.images import load_upload
 from app.passport.service import CardNotFound, read_passport
-from app.security import require_api_key
 
-router = APIRouter(prefix="/hr", tags=["hr"], dependencies=[Depends(require_api_key)])
+router = APIRouter(prefix="/hr", tags=["hr"])
 settings = get_settings()
 
 
@@ -53,7 +52,16 @@ def _lang(query: str | None, form: str | None) -> str:
     return LANGS[lang]
 
 
-@router.post("/passport", response_model=HrResponse, summary="Паспорт → анкета сотрудника (18 полей)")
+@router.post(
+    "/passport",
+    response_model=HrResponse,
+    summary="Паспорт → анкета сотрудника (18 полей)",
+    responses={
+        413: {"description": "Файл больше MAX_UPLOAD_MB"},
+        415: {"description": "Не изображение (JPG, PNG, WEBP, BMP, TIFF)"},
+        422: {"description": "ID-карта не найдена на изображении"},
+    },
+)
 async def hr_passport(
     front: UploadFile = File(..., description="Лицевая сторона ID-карты"),
     back: UploadFile = File(..., description="Обратная сторона (адрес, РМА, MRZ)"),
@@ -65,10 +73,10 @@ async def hr_passport(
               ("back", (await load_upload(back, settings.max_upload_mb))[0])]  # fmt: skip
     started = time.perf_counter()
     try:
-        r = await run_in_threadpool(read_passport, images, settings)
+        r = await run_in_threadpool(read_passport, images)
     except CardNotFound as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    except RuntimeError as e:  # tesseract / models missing
+    except RuntimeError as e:  # Tesseract failed
         raise HTTPException(status_code=503, detail=str(e)) from e
 
     warnings = list(r.warnings)

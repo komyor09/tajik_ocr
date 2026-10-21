@@ -4,8 +4,6 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from app import tess
-from app.config import Settings
 from app.passport import reader
 from app.passport.mrz import Mrz
 
@@ -22,16 +20,12 @@ class PassportResult:
     warnings: list[str] = field(default_factory=list)
 
 
-def read_passport(images: list[tuple[str, np.ndarray]], settings: Settings) -> PassportResult:
+def read_passport(images: list[tuple[str, np.ndarray]]) -> PassportResult:
     """images: (upload field name, BGR array). The side is detected from the picture itself,
     so it does not matter which file was sent as front or back.
 
-    Raises RuntimeError if Tesseract or a model is missing, CardNotFound if no card is found.
+    Raises CardNotFound if no card is found. Tesseract and models are checked once at startup.
     """
-    tess.init(settings.tesseract_cmd)
-    for lang in ("tgk", "eng", "ocrb"):
-        tess.langs_location(lang)  # clear error if a model is missing
-
     sides: dict[str, reader.SideResult] = {}
     warnings: list[str] = []
     for upload, img in images:
